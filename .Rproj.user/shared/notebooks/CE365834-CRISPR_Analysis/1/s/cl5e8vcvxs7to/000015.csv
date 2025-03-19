@@ -1,0 +1,7 @@
+"0",""
+"0","mageckreport=read.delim(""L20_T20_controlnorm.gene_summary.txt"")"
+"0","write.csv(mageckreport,""L20_T20_controlnorm.gene_summary.csv"")"
+"0","gdata=gdata[order(gdata$Rank),]"
+"0","write.csv(gdata,""L20_T20_controlnorm_gdata.csv"")"
+"0",""
+"0","print(gdata[which(gdata$FDR<0.001),],)"

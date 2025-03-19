@@ -1,0 +1,208 @@
+---
+title: "Phagocytosis Minature Screen Analysis"
+author: "SJW"
+date: "2023-02-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(MAGeCKFlute)
+library(ggplot2)
+library(cowplot)
+library(clusterProfiler)
+library(reshape2)
+library(limma)
+library(dplyr)
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This is an R Markdown document of the two pilot screens undertaken using the 20 genes with known effect using a novel dual reporter assay
+
+iMGL were transduced with 83 sgRNA library to 20 genes of interest and 8 intergenic non-targeting controls. iMGL were then fed labelled SH-SY5Y at d14 for 6 hours. mCherry signal by FACS is a proxy for phagocytosis rate. Cells were sorted into bins of phagocytic ability
+
+L20 - lowest phagocytosing cells 
+
+LM - lower middle phagocytosis
+
+UM - upper middle phagocytosis
+
+T20 - Highest phagocytosing cells
+
+
+T0 is the basline transduction efficiency
+
+UN are unsorted cells at the end of the experiment, used as a proxy for dropout during the differentation of essentiallity genes
+
+The sgRNA cassettes were amplified by PCR before indexing and sequencing. Sequencing was similar across the samples once deconvoluted and aligned to the genome and counted using MAGeCk Count. Alignment and giniscores looked good. Note: Repeat 1 was sequenced on a NovaSeq and Repeat 2 was sequenced on a MiSeq
+
+#### Raw Data
+
+Plotting the raw sequencing read data, where reads have been counted to the reference files.
+
+```{r data loading, echo = FALSE, fig.width=15,warning=FALSE}
+raw_reads=read.delim("Reverse_Merged.count.txt")
+
+densityreads=raw_reads[,3:14]
+densityreads=melt(densityreads)
+densityreads$log10read= log10(densityreads$value)
+
+densityplot=ggplot(densityreads,aes(x=log10read,fill=variable))+
+  geom_density(alpha=.25)+
+  xlim(0,8)+
+  labs(title="Mapped Read Density")
+
+violinplot=ggplot(densityreads,aes(x=variable,y=log10read,fill=variable))+
+  geom_violin(alpha=0.25)+
+  theme(axis.text.x=element_text(angle=45,vjust=0.5))+
+  labs(title="Mapped Read Density - Violin")
+
+plot(densityplot)
+plot(violinplot)
+
+mageck_count_files=read.delim("Reverse_Merged.countsummary.txt")
+BarView(mageck_count_files,x="Label",y="GiniIndex",ylab="Gini Index",main="Evenness of sgRNA reads")
+
+Rep_1_mageck_count_files=mageck_count_files[c(1:6),]
+Rep_1_mageck_count_files$Label=c("T0","UN","L20","LM","UM","T20")
+Rep_1_mageck_count_files$Label=factor(Rep_1_mageck_count_files$Label,levels=c("T0","UN","L20","LM","UM","T20"))
+
+Rep_2_mageck_count_files=mageck_count_files[c(7:12),]
+Rep_2_mageck_count_files$Label=c("T0","UN","L20","LM","UM","T20")
+Rep_2_mageck_count_files$Label=factor(Rep_2_mageck_count_files$Label,levels=c("T0","UN","L20","LM","UM","T20"))
+
+plot_grid(MapRatesView(Rep_1_mageck_count_files),MapRatesView(Rep_2_mageck_count_files))
+
+```
+
+Mapping quality is >60% for all samples, continue with analysis
+
+## Post MAGeCK Analysis of Bottom vs Top 20 bins
+
+Ran MAGeCK test on the filtered data using top vs bottom to get a list of genes which are enriched in both populations, control is Bottom, Top is test
+
+The RRA was ran as a pool treating each repeat as independent, normalising library sizes to the intergenic controls.
+
+mageck test -k countfile.txt -t Rep_1_T20, Rep_1_T20 -c Rep_1_L20, Rep_1_L20 --norm-method control --control-sgRNA intergenic_sgrna.csv --normcounts-to-file 
+
+#### Check Log2FC of the Intergenic Guides
+
+Plot the Log2FC of the 8 intergenic guides, these should be clustered around the 0 Log2FC mark
+
+```{r, MAGeCK analysis control genes, echo=FALSE, fig.width=10, warning=FALSE}
+sdata=ReadsgRRA("L20_T20_controlnorm.sgrna_summary.txt")
+
+p1 = ggplot(sdata[sdata$Gene=="Intergenic",],aes(x=LFC))+
+  geom_density()+
+  theme_classic()+
+  labs(x="Log2FC",y="Frequency",title="Intergenic Controls Log2FC")+
+  theme(plot.title=element_text(hjust=0.5))+
+    theme(plot.title = element_text(face="bold",size=12),
+        axis.title = element_text(face="bold",size=12))+
+  xlim(c(-1,1))
+
+print(p1)
+
+```
+
+Distribution of the Control Intergenic is as expected, strong peak around 0 Log2FC, any findings should be valid as little variation in the control sgRNA.
+
+#### MAGeCK analysis of Top vs Bottom hits
+
+<span style="color:red">Red</span> is enriched in the mCherry population (increased phagocytosis)\
+<span style="color:blue">Blue</span> is enriched in the Negative population (decreased phagocytosis)\
+
+
+```{r, MAGeCK Analysis, echo=FALSE, fig.width=10,warning=FALSE}
+options(ggrepel.max.overlaps = Inf)
+gdata=ReadRRA("L20_T20_controlnorm.gene_summary.txt")
+
+gdata$Rank=rank(gdata$Score)
+geneList=gdata$Score
+names(geneList)=gdata$id
+p2=RankView(geneList,genelist = unique(gdata$id),top=5,bottom=5)+
+  labs(title="Rank Plot")+
+  theme(plot.title = element_text(face="bold",size=12),
+        axis.title = element_text(face="bold",size=12))
+print(p2)
+
+mageckreport=read.delim("L20_T20_controlnorm.gene_summary.txt")
+write.csv(mageckreport,"L20_T20_controlnorm.gene_summary.csv")
+gdata=gdata[order(gdata$Rank),]
+write.csv(gdata,"L20_T20_controlnorm_gdata.csv")
+
+print(gdata[which(gdata$FDR<0.001),],)
+```
+
+8 Genes reaching FDR significance of <0.001 
+
+**VHL, INPP5D, CSF1R, WASF2, NCKAP1L - KO Decreases Phagocytosis**
+
+**ABCA7, PLCG2, TREM2 - KO Increases Phagocytosis**
+
+#### Look at the significant sgRNA Log2FC
+
+Print out the individual Log2FC of each of the gRNA by gene
+
+```{r, MAGeCK Analysis 2, echo=FALSE, fig.width=10,fig.height=4, warning=FALSE}
+p3=sgRankView(sdata,top=3,bottom=5,binwidth = 0.02,interval = 0.02)+
+  labs(title="FDR Sig sgRNA Log2FC")+
+  theme(plot.title = element_text(face="bold",size=12),
+        axis.title = element_text(face="bold",size=12))
+
+print(p3)
+
+```
+
+#### Normalised counts across the different bins
+
+As 4 bins sorted should see a shift in the count data across the different bins when sorting, should be able to confirm strong effects in the significant genes and provide more evidence for which targets to validate.
+
+
+```{r, Top Genes, echo=FALSE, fig.width=10,fig.height=40,comment=NA,warnings=FALSE,message=FALSE}
+######## Looking at individual gRNA
+
+Normalised_counts=read.delim("Reverse_Merged.count_normalized.txt")
+Genes=as.vector(unique(gdata$id))
+
+pal=c("#2C7BB6","#ABD9E9","#FDAE61","#D7191C")
+Condensed_plots=list()
+
+for(i in Genes){
+plotname=paste("plot",i,sep="_")
+data1=Normalised_counts[,c(1:2,5:8,11:14)]
+data1=data1[data1$Gene==i,]
+data1=melt(data1)
+data1$variable=as.character(data1$variable)
+name=str_split_fixed(data1$variable,"_",3)
+data1=cbind(data1,name)
+colnames(data1)=c("sgRNA","Gene","variable","value","Null","Repeat","Bin")
+data1$sgRNA=str_split_i(data1$sgRNA,"_",2)
+data1$Repeat[data1$Repeat=="Rep_1"]="Repeat 1"
+data1$Repeat[data1$Repeat=="Rep_2"]="Repeat 2"
+data1$sgRNA[data1$sgRNA=="gRNA1"]="sgRNA 1"
+data1$sgRNA[data1$sgRNA=="gRNA2"]="sgRNA 2"
+data1$sgRNA[data1$sgRNA=="gRNA3"]="sgRNA 3"
+data1$Bin=factor(data1$Bin,levels=c("L20","LM","UM","T20"))
+data1$sgRNA_Rep=paste(data1$sgRNA,data1$Repeat,sep="_")
+
+Condensed_plots[[plotname]]=ggplot(data1,aes(x=Bin,y=value,fill=Bin))+
+   geom_boxplot(alpha=.75,outlier.alpha=0)+
+  scale_fill_manual(values=pal)+
+   geom_jitter(shape=16,position=position_jitter(0))+
+    geom_line(aes(color=sgRNA,group = sgRNA_Rep))+
+    geom_point(aes(shape=Repeat))+
+    theme_classic()+
+    theme(plot.title = element_text(face="bold",size=12),
+        axis.title = element_text(face="bold",size=12))+
+    theme(axis.text.x = element_text(angle=45,vjust=0.5))+
+    labs(title=paste(i),y="Normalised Count",x="Sample")+
+  guides(fill=FALSE)
+}
+
+plot_grid(plotlist=Condensed_plots,ncol=2)
+```
+
+Strongest changes in PLCG2, TREM2, ABCA7, VHL, INPP5D, these would be strong candiates for validation

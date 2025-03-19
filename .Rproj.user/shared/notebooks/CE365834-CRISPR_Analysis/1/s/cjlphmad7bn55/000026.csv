@@ -1,0 +1,3 @@
+"0",""
+"0","mageck_count_files=read.delim(""Reverse_Merged.countsummary.txt"")"
+"0","BarView(mageck_count_files,x=""Label"",y=""GiniIndex"",ylab=""Gini Index"",main=""Evenness of sgRNA reads"")"
